@@ -1,0 +1,391 @@
+openapi: '3.0.0'
+info:
+    title: Delivery provider API (a provider calls Sauce)
+    version: '1.0'
+security:
+    - AccessKey: []
+
+paths:
+    /orders/{order}/events:
+        post:
+            summary: Sends real-time events to Sauce regarding deliveries.
+            parameters:
+                - name: order
+                  in: path
+                  description: "The order unique identifier."
+                  required: true
+                  schema:
+                      type: string
+
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            properties:
+                                time:
+                                    type: string
+                                    format: date-time
+                                    description: >
+                                        The time when the event happened. Might be useful especially in case of retries
+                                        and event delivery delays. The time is returned in the ISO-8601 format,
+                                        in the UTC time zone.
+                                # The new status for transition.
+                                status:
+                                    $ref: '#/components/schemas/OrderStatus'
+                                # Justification for certain transitions.
+                                # Required for the "canceled" and "delivery_failed" statuses.
+                                status_reason:
+                                    $ref: '#/components/schemas/OrderStatusReason'
+                                    nullable: true
+                                # The courier who is delivering the order.
+                                # The courier can be changed only together with the "assigned" status. In this status,
+                                # the field is required.
+                                courier:
+                                    $ref: '#/components/schemas/Courier'
+                                    nullable: true
+                                # The current courier location.
+                                # The location is required in the following statuses:
+                                #   - assigned
+                                #   - pickup_enroute
+                                #   - pickup_arrived
+                                #   - picked_up
+                                #   - dropoff_enroute
+                                #   - dropoff_arrived
+                                #   - return_enroute
+                                # It cannot be specified in other statuses.
+                                location:
+                                    $ref: '#/components/schemas/CourierLocation'
+                                    nullable: true
+                                # The pickup ETA is required in the following statuses:
+                                #   - scheduled
+                                #   - searching
+                                #   - assigned
+                                #   - pickup_enroute
+                                #   - pickup_arrived
+                                # It cannot be specified in other statuses.
+                                pickup_eta:
+                                    type: string
+                                    format: date-time
+                                    nullable: true
+                                    description: >
+                                        The up to date estimation of the time when a courier will arrive at the pickup
+                                        point. This time was initially provided when the order was created. This is
+                                        a real time value that might change depending on the current situation.
+                                        The time is in the ISO-8601 format, in the UTC time zone.
+                                # The drop-off ETA is required in the following statuses:
+                                #   - scheduled
+                                #   - searching
+                                #   - assigned
+                                #   - pickup_enroute
+                                #   - pickup_arrived
+                                #   - picked_up
+                                #   - dropoff_enroute
+                                #   - dropoff_arrived
+                                # It cannot be specified in other statuses.
+                                dropoff_eta:
+                                    type: string
+                                    format: date-time
+                                    nullable: true
+                                    description: >
+                                        The up to date estimation of the time when a courier will arrive at
+                                        the drop-off point. This time was initially provided when the order was
+                                        created. This is a real time value that might change depending on the current
+                                        situation. The time is in the ISO-8601 format, in the UTC time zone.
+                                fee:
+                                    type: number
+                                    format: int32
+                                    minimum: 0
+                                    nullable: true
+                                    description: >
+                                        The delivery fee (without tips), in cents. The fee was already provided when
+                                        the order was created. The fee may be adjusted in case of unpredicted
+                                        circumstances. For example, the courier has to return the order back to
+                                        the pickup location. Or the courier has to wait additional time.
+                            required:
+                                - time
+                                - status
+            responses:
+                200:
+                    description: OK
+                400:
+                    description: Bad request
+                401:
+                    description: Unauthorized
+                403:
+                    description: Forbidden
+                404:
+                    description: The order was not found.
+                409:
+                    description: "Conflict"
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    subcode:
+                                        $ref: '#/components/schemas/EventSending409Errors'
+                                    message:
+                                        type: string
+                                required:
+                                    - subcode
+                                    - message
+                415:
+                    description: "Unsupported media type"
+                422:
+                    description: "Unprocessable entity"
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    subcode:
+                                        $ref: '#/components/schemas/EventSending422Errors'
+                                    message:
+                                        type: string
+                                required:
+                                    - subcode
+                                    - message
+
+
+    /simulatations:
+        post:
+            summary: Starts a simulation session to test a delivery provider.
+
+            responses:
+                200:
+                    description: Success
+                401:
+                    description: Unauthorized
+
+    /simulations/{simulation}:
+        get:
+            summary: Checks the status of a particular simulation session.
+
+            parameters:
+                - name: simulation
+                  in: path
+                  description: "The simulation session unique identifier."
+                  required: true
+                  schema:
+                      type: string
+
+            responses:
+                200:
+                    description: Success
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    status:
+                                        $ref: '#/components/schemas/SimulationStatus'
+                                required:
+                                    - status
+                401:
+                    description: Unauthorized
+                404:
+                    description: The session was not found.
+
+components:
+    schemas:
+        OrderStatus:
+            type: string
+            enum:
+                # The status is needed to work with future orders. The status can be skipped if the provider starts
+                # searching for a courier immediately. Transition from this status is possible only to:
+                # - searching
+                # - assigned
+                # - canceled
+                - scheduled
+                # Indicates the provider started searching for a courier. Transition from this status is possible only to:
+                # - assigned
+                # - scheduled
+                # - canceled
+                - searching
+                # A courier is found and assigned. Information about the courier is required to be provided
+                # at this stage.
+                - assigned
+                # The courier is on the way to the pickup location. The status can be skipped if the provider does
+                # not have this information.
+                - pickup_enroute
+                # The courier has arrived to the pickup location, but has not picked up the delivery yet. The status
+                # can be skipped if the provider does not have this information.
+                - pickup_arrived
+                # The courier has picked up the delivery.
+                - picked_up
+                # The courier is on the way to the drop-off location. The status can be skipped if the provider does
+                # not have this information.
+                - dropoff_enroute
+                # The courier has arrived to the drop-off location, but the delivery has not happened yet. The status
+                # can be skipped if the provider does not have this information.
+                - dropoff_arrived
+                # The package has been delivered to the customer. This is a final status, no further transitions
+                # can be done.
+                - delivered
+                # The package cannot be delivered to the customer. A return is possibly going to be arranged.
+                - delivery_failed
+                # The order has been cancelled. This is a final status, no further transitions
+                # can be done.
+                - canceled
+                # The courier is on the way to return the package back to the pickup location.
+                - return_enroute
+                # The package has been returned to the pickup location. This is a final status, no further transitions
+                # can be done.
+                - returned
+
+        OrderStatusReason:
+            type: object
+            properties:
+                code:
+                    $ref: '#/components/schemas/OrderStatusReasonCode'
+                comment:
+                    type: string
+                    nullable: true
+                    description: >
+                        An optional arbitrary comment explaining why this status transition was done. It is required
+                        only when the "other" code is specified. It is optional for the rest of the codes.
+            required:
+                - code
+
+        OrderStatusReasonCode:
+            type: string
+            enum:
+                # The following reasons can be used only with the "canceled" status.
+
+                # Something went wrong, and the vendor (restaurant, store etc.) cannot find the order in their system.
+                - no_order
+                # The order had been already picked up by another courier or by the customer theirself.
+                - order_already_taken
+                # The pickup place is closed.
+                - pickup_closed
+                # Something happened with the courier, for example, the vehicle broke, an accident or the courier is
+                # having issues with the app.
+                - courier_issues
+                # Something went wrong, the vendor already canceled the order but for some reason the courier was not
+                # notified.
+                - vendor_canceled_order
+                # The courier did not find where their can pick up the order.
+                - pickup_not_found
+                # The courier arrived but the food is not ready yet, and the courier cannot wait any longer.
+                - food_not_ready
+
+
+                # The following reasons can be used only with the "delivery_failed" status.
+
+                # The customer is not responding, that is why the order cannot be delivered.
+                - customer_unavailable
+                # The customer ordered contactless delivery, but the courier cannot find where their can drop off
+                # the order. And the customer is not picking up the phone.
+                - dropoff_not_found
+
+
+                # When the situation is none from the already defined.
+                # Can be used with any status.
+                - other
+
+        Coordinate:
+            type: object
+            properties:
+                latitude:
+                    type: number
+                longitude:
+                    type: number
+            required:
+                - latitude
+                - longitude
+
+        Courier:
+            type: object
+            properties:
+                name:
+                    type: string
+                    description: The name of the courier for higher customer trust. Cannot be empty.
+                photo_url:
+                    type: string
+                    nullable: true
+                    description: >
+                        An absolute HTTPs URL to a courier image file. The URL must be publicly available without any
+                        additional authentication. Also used for gaining customer trust and security verification.
+                phone:
+                    type: string
+                    nullable: true
+                    description: >
+                        The courier phone number if the provider is willing to expose the direct number. Can be used
+                        to contact the courier in case of issues.
+                vehicle:
+                    $ref: '#/components/schemas/Vehicle'
+                    nullable: true
+            required:
+                - name
+
+        Vehicle:
+            type: object
+            properties:
+                type:
+                    $ref: '#/components/schemas/VehicleType'
+                    nullable: true
+                description:
+                    type: string
+                    nullable: true
+                    description: >
+                        An optional vehicle description, for example, "White Toyota RAV4".
+
+        VehicleType:
+            type: string
+            enum:
+                - car
+                - bicycle
+                - scooter
+                - motorcycle
+                - walking
+
+        CourierLocation:
+            type: object
+            properties:
+                coordinate:
+                    $ref: '#/components/schemas/Coordinate'
+                heading:
+                    type: integer
+                    format: int32
+                    minimum: 0
+                    maximum: 360
+                    nullable: true
+                    description: The courier movement direction. It is an angle starting from North in degrees.
+                accuracy:
+                    type: integer
+                    format: int32
+                    minimum: 0
+                    nullable: true
+                    description: The coordinates accuracy is represented as the circle radius in meters.
+            required:
+                - coordinate
+
+        SimulationStatus:
+            type: string
+            enum:
+                - pending
+                - passed
+                - failed
+
+        EventSending409Errors:
+            type: string
+            enum:
+            # A transition from a given status to the specified status is illegal. See comments for each status.
+                - illegal_transition
+            # The courier can be changed only together with the "assigned" status.
+                - unexpected_courier
+            # A more recent event had been already received. Possible unordering due to retries. A given event will be
+            # discarded.
+                - unordered_event
+
+        EventSending422Errors:
+            type: string
+            enum:
+                - wrong_usage                   # The request contains semantic errors.
+
+    securitySchemes:
+        AccessKey:
+            type: http
+            scheme: AccessKey

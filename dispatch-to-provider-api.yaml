@@ -1,0 +1,604 @@
+openapi: '3.0.0'
+info:
+    title: Delivery provider API (Sauce calls a provider)
+    version: '1.0'
+security:
+    - AccessKey: []
+paths:
+    /quotes:
+        post:
+            summary: Checks whether delivery is even possible and how much it will cost, without actually making an order.
+
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            properties:
+                                pickup:
+                                    $ref: '#/components/schemas/QuotePoint'
+                                    description: The location where the delivery needs to be picked up.
+                                dropoff:
+                                    $ref: '#/components/schemas/QuotePoint'
+                                    description: The location where the delivery needs to be dropped off.
+                                pickup_time:
+                                    type: integer
+                                    format: int32
+                                    minimum: 0
+                                    description: Approximate time in minutes when the pick-up needs to happen after order creation.
+                                cart:
+                                    $ref: '#/components/schemas/QuoteCart'
+                                    description: The list of all delivering items. This might be useful for picking the appropriate courier/transport.
+                                order_value:
+                                    type: integer
+                                    format: int32
+                                    minimum: 0
+                                    nullable: true
+                                    description: The cost of all items in the order including markup, in cents.
+                                tip:
+                                    type: integer
+                                    format: int32
+                                    minimum: 0
+                                    nullable: true
+                                    description: The tip that will be paid the courier for this delivery, in cents.
+                                alcohol:
+                                    type: boolean
+                                    description: Indicates whether the order will contain any alcohol which will require age verification.
+
+                            required:
+                                - pickup
+                                - dropoff
+                                - pickup_time
+                                - cart
+                                - alcohol
+
+            responses:
+                201:
+                    description: Success
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    id:
+                                        type: string
+                                        description: The unique identifier of the quote. The exact format is defined by the provider.
+                                    expiration_time:
+                                        type: string
+                                        format: date-time
+                                        description: >
+                                            The time when the quote expires, it remains valid until then. The time is
+                                            returned in the ISO-8601 format, in the UTC time zone.
+                                    pickup_eta:
+                                        type: integer
+                                        format: int32
+                                        minimum: 0
+                                        description: >
+                                            The estimated time when a courier can arrive at the pickup point. The time is
+                                            returned in minutes and will be counted since the moment of order creation.
+                                    dropoff_eta:
+                                        type: integer
+                                        format: int32
+                                        minimum: 0
+                                        description: >
+                                            The estimated time when a courier can arrive at the drop-off point. The time is
+                                            returned in minutes and will be counted since the moment of order creation.
+                                    pickup:
+                                        $ref: '#/components/schemas/QuotePoint'
+                                        description: >
+                                            The location where the delivery needs to be picked up, went through
+                                            the provider system, perhaps through some kind of address resolution and
+                                            returned back for verification purposes.
+                                    dropoff:
+                                        $ref: '#/components/schemas/QuotePoint'
+                                        description: >
+                                            The location where the delivery needs to be dropped off, went through
+                                            the provider system, perhaps through some kind of address resolution and
+                                            returned back for verification purposes.
+                                    fee:
+                                        type: number
+                                        format: int32
+                                        minimum: 0
+                                        description: The delivery fee, in cents.
+                                required:
+                                    - id
+                                    - expiration_time
+                                    - pickup_eta
+                                    - dropoff_eta
+                                    - pickup
+                                    - dropoff
+                                    - fee
+                400:
+                    description: Bad request
+                401:
+                    description: Unauthorized
+                415:
+                    description: "Unsupported media type"
+                422:
+                    description: "Unprocessable entity"
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    subcode:
+                                        $ref: '#/components/schemas/QuoteCreation422Errors'
+                                    message:
+                                        type: string
+                                required:
+                                    - subcode
+                                    - message
+                503:
+                    description: "Service Unavailable"
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    subcode:
+                                        $ref: '#/components/schemas/QuoteCreation503Errors'
+                                    message:
+                                        type: string
+                                required:
+                                    - subcode
+                                    - message
+
+    /orders:
+        post:
+            summary: Creates an actual order, asking the provider to start the delivery.
+
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            properties:
+                                quote_id:
+                                    type: string
+                                    description: A quote identifier, earlier received from the provider.
+                                pickup:
+                                    $ref: '#/components/schemas/Point'
+                                    description: >
+                                        The location where the delivery needs to be picked up. The address and
+                                        the coordinate match the quote.
+                                dropoff:
+                                    $ref: '#/components/schemas/Point'
+                                    description: >
+                                        The location where the delivery needs to be dropped off. The address and
+                                        the coordinate match the quote.
+                                pickup_time:
+                                    type: string
+                                    format: date-time
+                                    description: >
+                                        The requested time when the pick-up needs to happen. The time is
+                                        in the ISO-8601 format, in the UTC time zone.
+                                cart:
+                                    $ref: '#/components/schemas/Cart'
+                                    description: >
+                                        The list of all delivering items. This might be useful for picking
+                                        the appropriate courier/transport and also to ensure all ordered items are
+                                        delivered. The number matches the quote.
+                                order_value:
+                                    type: integer
+                                    format: int32
+                                    minimum: 0
+                                    description: >
+                                        The cost of all items in the order including markup, in cents. Matches
+                                        the quote.
+                                tip:
+                                    type: integer
+                                    format: int32
+                                    minimum: 0
+                                    description: >
+                                        The tip that will be paid the courier for this delivery, in cents. Matches
+                                        the quote.
+                                alcohol:
+                                    type: boolean
+                                    description: >
+                                        Indicates whether the order will contain any alcohol which will require age
+                                        verification. Matches the quote.
+                                contactless:
+                                    type: boolean
+                                    description: >
+                                        Indicates whether the delivery should be left near the door. Drop-off notes
+                                        might contain specific instructions.
+                            required:
+                                - quote_id
+                                - pickup
+                                - dropoff
+                                - pickup_time
+                                - cart
+                                - order_value
+                                - tip
+                                - alcohol
+                                - contactless
+
+            responses:
+                201:
+                    description: Success
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    id:
+                                        type: string
+                                        description: The unique identifier of the order. The exact format is defined by the provider.
+                                    pickup_eta:
+                                        type: string
+                                        format: date-time
+                                        description: >
+                                            The estimated time when a courier will arrive at the pickup point. The time is
+                                            in the ISO-8601 format, in the UTC time zone.
+                                    dropoff_eta:
+                                        type: string
+                                        format: date-time
+                                        description: >
+                                            The estimated time when a courier will arrive at the drop-off point. The time is
+                                            in the ISO-8601 format, in the UTC time zone.
+                                    pickup:
+                                        $ref: '#/components/schemas/ResolvedPoint'
+                                        description: >
+                                            The location where the delivery needs to be picked up, went through
+                                            the provider system, perhaps through some kind of address resolution and
+                                            returned back for verification purposes.
+                                    dropoff:
+                                        $ref: '#/components/schemas/ResolvedPoint'
+                                        description: >
+                                            The location where the delivery needs to be dropped off, went through
+                                            the provider system, perhaps through some kind of address resolution and
+                                            returned back for verification purposes.
+                                    fee:
+                                        type: number
+                                        format: int32
+                                        minimum: 0
+                                        description: The delivery fee, in cents.
+                                required:
+                                    - id
+                                    - pickup_eta
+                                    - dropoff_eta
+                                    - pickup
+                                    - dropoff
+                                    - fee
+                400:
+                    description: Bad request
+                401:
+                    description: Unauthorized
+                409:
+                    description: Conflict
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    subcode:
+                                        $ref: '#/components/schemas/OrderCreation409Errors'
+                                    message:
+                                        type: string
+                                    order_id:
+                                        type: string
+                                        nullable: true
+                                        description: >
+                                            The identifier of the order, earlier created for the specified quote.
+                                            Available when the sub-code is "already_created".
+                                required:
+                                    - subcode
+                                    - message
+                415:
+                    description: Unsupported media type
+                422:
+                    description: "Unprocessable entity"
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    subcode:
+                                        $ref: '#/components/schemas/OrderCreation422Errors'
+                                    message:
+                                        type: string
+                                required:
+                                    - subcode
+                                    - message
+                503:
+                    description: Service Unavailable
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    subcode:
+                                        $ref: '#/components/schemas/OrderCreation503Errors'
+                                    message:
+                                        type: string
+                                required:
+                                    - subcode
+                                    - message
+
+    /orders/{order}:
+        get:
+            summary: Gets up to date information about a particular order.
+
+            parameters:
+                - name: order
+                  in: path
+                  description: "The order unique identifier."
+                  required: true
+                  schema:
+                      type: string
+
+            responses:
+                200:
+                    description: Success
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Order'
+                401:
+                    description: Unauthorized
+                404:
+                    description: The order was not found.
+
+    /orders/{order}/cancellation:
+        post:
+            summary: Cancels an order.
+
+            parameters:
+                - name: order
+                  in: path
+                  description: "The order unique identifier."
+                  required: true
+                  schema:
+                      type: string
+
+            responses:
+                200:
+                    description: Success
+                401:
+                    description: Unauthorized
+                404:
+                    description: The order was not found.
+                409:
+                    description: The order cannot be cancelled at this stage.
+
+components:
+    schemas:
+        Order:
+            type: object
+            properties:
+                id:
+                    type: string
+                status:
+                    $ref: '#/components/schemas/OrderStatus'
+                courier:
+                    $ref: '#/components/schemas/Courier'
+            required:
+                - id
+                - status
+
+        QuotePoint:
+            type: object
+            properties:
+                address:
+                    $ref: '#/components/schemas/Address'
+                    description: The location address.
+                coordinate:
+                    $ref: '#/components/schemas/Coordinate'
+                    description: The location coordinates matching the address.
+            required:
+                - address
+                - coordinate
+
+        Point:
+            type: object
+            properties:
+                name:
+                    type: string
+                    description: The location name (for a pickup point), the customer name (for the drop-off point).
+                address:
+                    $ref: '#/components/schemas/Address'
+                    description: The location address.
+                coordinate:
+                    $ref: '#/components/schemas/Coordinate'
+                    description: The location coordinates matching the address.
+                phone:
+                    type: string
+                    description: The contact phone number.
+                notes:
+                    type: string
+                    nullable: true
+                    description: >
+                        Optional comments how to get to the location or what to do with the delivery, for example,
+                        "Call when arrived" or "Leave the delivery next to the red door".
+            required:
+                - name
+                - address
+                - coordinate
+                - phone
+
+        ResolvedPoint:
+            type: object
+            properties:
+                address:
+                    $ref: '#/components/schemas/Address'
+                    description: The location address.
+                coordinate:
+                    $ref: '#/components/schemas/Coordinate'
+                    description: The location coordinates matching the address.
+            required:
+                - address
+                - coordinate
+
+        Coordinate:
+            type: object
+            properties:
+                latitude:
+                    type: number
+                    description: Must be within -90..90 degrees range.
+                longitude:
+                    type: number
+                    description: Must be within -180..180 degrees range.
+            required:
+                - latitude
+                - longitude
+
+        OrderStatus:
+            type: string
+            enum:
+                - scheduled
+                - assigned
+                - picked_up
+                - delivered
+                - canceled
+
+        Courier:
+            type: object
+            properties:
+                name:
+                    type: string
+                phone:
+                    type: string
+            required:
+                - name
+                - phone
+
+        QuoteCreation422Errors:
+            type: string
+            enum:
+                - wrong_usage                   # The request contains semantic errors.
+                - outside_zone                  # A drop-off or a pick-up point is outside of the delivery zone.
+                - outside_working_hours         # The delivery would be outside of working hours.
+
+        QuoteCreation503Errors:
+            type: string
+            enum:
+                - no_couriers                   # The are no couriers currently for this route and this order.
+                - delivery_unavailable          # The delivery of this order is unavailable for unknown reasons. No retries will fix that.
+
+        OrderCreation409Errors:
+            type: string
+            enum:
+                - already_created               # The order for such quote was already created. Only one order can be created for a quote.
+
+        OrderCreation422Errors:
+            type: string
+            enum:
+                - wrong_usage
+                - missing_quote                 # The specified quote does not exist, possibly expired.
+
+        OrderCreation503Errors:
+            type: string
+            enum:
+                # The delivery of this order is unavailable for unknown reasons, and the order will not be created.
+                # No retries will fix that.
+                - delivery_unavailable
+
+        QuoteCart:
+            type: object
+            properties:
+                items_number:
+                    type: integer
+                    format: int32
+                    minimum: 1
+                    description: The number of items to deliver.
+            required:
+                - items_number
+
+        Cart:
+            type: object
+            properties:
+                items_number:
+                    type: integer
+                    format: int32
+                    minimum: 1
+                    description: The overall number of items to deliver, counting all copies.
+                items:
+                    $ref: '#/components/schemas/Item'
+                    description: The detailed list of items in the order.
+
+            required:
+                - items_number
+                - items
+
+        Item:
+            type: object
+            properties:
+                name:
+                    type: string
+                    description: The descriptive name of the item. Can be arbitrary.
+                quantity:
+                    type: integer
+                    format: int32
+                    minimum: 1
+                    description: The number of such items. Can be more than 1 if a client orders several identical items.
+            required:
+                - name
+                - number
+
+        Address:
+            type: object
+            properties:
+                non_structured:
+                    type: string
+                    description: >
+                        The whole address, aggregated in one string, in case the structured address is not supported
+                        by the provider.
+                structured:
+                    $ref: '#/components/schemas/StructuredAddress'
+                    description: The structured address, split on parts for efficients processing.
+            required:
+                - non_structured
+                - structured
+
+        StructuredAddress:
+            type: object
+            properties:
+                country:
+                    type: string
+                    description: The 2-letter country code according to ISO-3166, for example "US".
+                state:
+                    type: string
+                    description: The state within the country.
+                city:
+                    type: string
+                    description: The city.
+                zip_code:
+                    type: string
+                    description: The postal code.
+                street_name:
+                    type: string
+                    description: The name of the street.
+                number:
+                    type: string
+                    description: The number of the house or the building.
+                street_name2:
+                    type: string
+                    description: An additional field if needed, for example, for bulding with multiple units. Can be empty.
+                entrance:
+                    type: string
+                    description: If applicable, can be empty.
+                floor:
+                    type: string
+                    description: If applicable, can be empty.
+                apartment:
+                    type: string
+                    description: If applicable, can be empty.
+
+            required:
+                - country
+                - state
+                - city
+                - zip_code
+                - street_name
+                - number
+                - street_name2
+                - entrance
+                - floor
+                - apartment
+
+    securitySchemes:
+        AccessKey:
+            type: http
+            scheme: AccessKey
