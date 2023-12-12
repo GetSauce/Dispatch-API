@@ -1,1 +1,1 @@
-All documentation is in the [wiki](/wiki).
+All documentation is in the [wiki](../../wiki).
