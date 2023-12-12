@@ -1,4 +1,6 @@
-openapi: '3.0.0'
+# yaml-language-server: $schema=https://raw.githubusercontent.com/OAI/OpenAPI-Specification/main/schemas/v3.1/schema.json
+
+openapi: '3.1.0'
 info:
     title: Delivery provider API (a provider calls Sauce)
     version: '1.0'
@@ -116,7 +118,19 @@ paths:
                 403:
                     description: Forbidden
                 404:
-                    description: The order was not found.
+                    description: Not Found
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    subcode:
+                                        $ref: '#/components/schemas/EventSending404Errors'
+                                    message:
+                                        type: string
+                                required:
+                                    - subcode
+                                    - message
                 409:
                     description: "Conflict"
                     content:
@@ -152,12 +166,32 @@ paths:
     /simulatations:
         post:
             summary: Starts a simulation session to test a delivery provider.
-
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            properties:
+                                scenario:
+                                    $ref: '#/components/schemas/SimulationScenario'
+                                pickup:
+                                    $ref: '#/components/schemas/SimulationPoint'
+                                dropoff:
+                                    $ref: '#/components/schemas/SimulationPoint'
+                            required:
+                                - scenario
             responses:
-                200:
-                    description: Success
+                201:
+                    description: Created
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Simulation'
                 401:
                     description: Unauthorized
+                422:
+                    description: "Unprocessable entity"
 
     /simulations/{simulation}:
         get:
@@ -177,12 +211,7 @@ paths:
                     content:
                         application/json:
                             schema:
-                                type: object
-                                properties:
-                                    status:
-                                        $ref: '#/components/schemas/SimulationStatus'
-                                required:
-                                    - status
+                                $ref: '#/components/schemas/Simulation'
                 401:
                     description: Unauthorized
                 404:
@@ -290,8 +319,10 @@ components:
             properties:
                 latitude:
                     type: number
+                    description: Must be within -90..90 degrees range.
                 longitude:
                     type: number
+                    description: Must be within -180..180 degrees range.
             required:
                 - latitude
                 - longitude
@@ -365,9 +396,15 @@ components:
         SimulationStatus:
             type: string
             enum:
-                - pending
-                - passed
+                - in_progress
+                - succeeded
                 - failed
+
+        EventSending404Errors:
+            type: string
+            enum:
+                - missing_order                 # The specified order was not found.
+                - missing_provider              # The specified provider was not found.
 
         EventSending409Errors:
             type: string
@@ -384,6 +421,113 @@ components:
             type: string
             enum:
                 - wrong_usage                   # The request contains semantic errors.
+
+        SimulationScenario:
+            type: string
+            enum:
+                - quote_order
+                - quote_decline
+
+        Simulation:
+            type: object
+            properties:
+                id:
+                    type: string
+                    description: The unique identifier of the scenario for reference.
+                creation_time:
+                    type: string
+                    format: date-time
+                    description: >
+                        The date and time of simulation start. The time is returned in the ISO-8601 format,
+                        in the UTC time zone.
+                scenario:
+                    $ref: '#/components/schemas/SimulationScenario'
+                status:
+                    $ref: '#/components/schemas/SimulationStatus'
+                failure_reason:
+                    type: string
+                    description: >
+                        Describes why the scenario failed in arbitrary words. Available only when the status
+                        is "failed".
+            required:
+                - id
+                - creation_time
+                - scenario
+                - status
+
+        SimulationPoint:
+            type: object
+            properties:
+                address:
+                    $ref: '#/components/schemas/Address'
+                    description: The location address.
+                coordinate:
+                    $ref: '#/components/schemas/Coordinate'
+                    description: The location coordinates matching the address.
+            required:
+                - address
+                - coordinate
+
+        Address:
+            type: object
+            properties:
+                non_structured:
+                    type: string
+                    description: >
+                        The whole address, aggregated in one string, in case the structured address is not supported
+                        by the provider.
+                structured:
+                    $ref: '#/components/schemas/StructuredAddress'
+                    description: The structured address, split on parts for efficients processing.
+            required:
+                - non_structured
+                - structured
+
+        StructuredAddress:
+            type: object
+            properties:
+                country:
+                    type: string
+                    description: The 2-letter country code according to ISO-3166, for example "US".
+                state:
+                    type: string
+                    description: The state within the country.
+                city:
+                    type: string
+                    description: The city.
+                zip_code:
+                    type: string
+                    description: The postal code.
+                street_name:
+                    type: string
+                    description: The name of the street.
+                number:
+                    type: string
+                    description: The number of the house or the building.
+                street_name2:
+                    type: string
+                    description: An additional field if needed, for example, for bulding with multiple units. Can be empty.
+                entrance:
+                    type: string
+                    description: If applicable, can be empty.
+                floor:
+                    type: string
+                    description: If applicable, can be empty.
+                apartment:
+                    type: string
+                    description: If applicable, can be empty.
+
+            required:
+                - country
+                - state
+                - city
+                - zip_code
+                - street_name
+                - number
+                - street_name2
+                - entrance
+                - floor
+                - apartment
 
     securitySchemes:
         AccessKey:
