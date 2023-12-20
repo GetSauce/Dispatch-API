@@ -368,14 +368,105 @@ components:
         Order:
             type: object
             properties:
-                id:
+                time:
                     type: string
+                    format: date-time
+                    description: >
+                        The time of the information update. If this unavailable, could be the current time. The time
+                        is returned in the ISO-8601 format, in the UTC time zone. The time is used to understand
+                        whether received order updates through the /orders/{order}/events endpoint are newer.
+                # The pickup ETA is required in the following statuses:
+                #   - scheduled
+                #   - searching
+                #   - assigned
+                #   - pickup_enroute
+                #   - pickup_arrived
+                pickup_eta:
+                    type: string
+                    format: date-time
+                    nullable: true
+                    description: >
+                        The estimated time when a courier will arrive at the pickup point. The time is
+                        in the ISO-8601 format, in the UTC time zone.
+                # The drop-off ETA is required in the following statuses:
+                #   - scheduled
+                #   - searching
+                #   - assigned
+                #   - pickup_enroute
+                #   - pickup_arrived
+                #   - picked_up
+                #   - dropoff_enroute
+                #   - dropoff_arrived
+                dropoff_eta:
+                    type: string
+                    format: date-time
+                    nullable: true
+                    description: >
+                        The estimated time when a courier will arrive at the drop-off point. The time is
+                        in the ISO-8601 format, in the UTC time zone.
+                pickup:
+                    $ref: '#/components/schemas/ResolvedPoint'
+                    description: >
+                        The location where the delivery needs to be picked up, went through
+                        the provider system, perhaps through some kind of address resolution and
+                        returned back for verification purposes. Must not change after creation.
+                dropoff:
+                    $ref: '#/components/schemas/ResolvedPoint'
+                    description: >
+                        The location where the delivery needs to be dropped off, went through
+                        the provider system, perhaps through some kind of address resolution and
+                        returned back for verification purposes. Must not change after creation.
+                fee:
+                    type: number
+                    format: int32
+                    minimum: 0
+                    description: >
+                        The delivery fee, in cents. The fee may be adjusted in case of unpredicted circumstances.
+                        For example, the courier has to return the order back to the pickup location. Or the courier
+                        has to wait additional time.
                 status:
                     $ref: '#/components/schemas/OrderStatus'
+                    description: The current order status.
+                # Justification for certain statuses.
+                # Required for the "canceled" and "delivery_failed" statuses.
+                status_reason:
+                    $ref: '#/components/schemas/OrderStatusReason'
+                    nullable: true
+                # The courier is required in the following statuses:
+                # - assigned
+                # - pickup_enroute
+                # - pickup_arrived
+                # - picked_up
+                # - dropoff_enroute
+                # - dropoff_arrived
+                # - delivered
+                # - delivery_failed
+                # - return_enroute
+                # - returned
                 courier:
                     $ref: '#/components/schemas/Courier'
+                    nullable: true
+                    description: >
+                        The courier who is delivering the order. The courier can be changed only together with the
+                        "assigned" status.
+                # The current courier location.
+                # The location is required in the following statuses:
+                #   - assigned
+                #   - pickup_enroute
+                #   - pickup_arrived
+                #   - picked_up
+                #   - dropoff_enroute
+                #   - dropoff_arrived
+                #   - return_enroute
+                # It must not be returned in other statuses.
+                location:
+                    $ref: '#/components/schemas/CourierLocation'
+                    nullable: true
             required:
-                - id
+                - time
+                - pickup
+                - dropoff
+                - fee
                 - status
 
         QuotePoint:
@@ -447,22 +538,163 @@ components:
         OrderStatus:
             type: string
             enum:
+                # The status is needed to work with future orders. The status can be skipped if the provider starts
+                # searching for a courier immediately. Transition from this status is possible only to:
+                # - searching
+                # - assigned
+                # - canceled
                 - scheduled
+                # Indicates the provider started searching for a courier. Transition from this status is possible only to:
+                # - assigned
+                # - scheduled
+                # - canceled
+                - searching
+                # A courier is found and assigned. Information about the courier is required to be provided
+                # at this stage.
                 - assigned
+                # The courier is on the way to the pickup location. The status can be skipped if the provider does
+                # not have this information.
+                - pickup_enroute
+                # The courier has arrived to the pickup location, but has not picked up the delivery yet. The status
+                # can be skipped if the provider does not have this information.
+                - pickup_arrived
+                # The courier has picked up the delivery.
                 - picked_up
+                # The courier is on the way to the drop-off location. The status can be skipped if the provider does
+                # not have this information.
+                - dropoff_enroute
+                # The courier has arrived to the drop-off location, but the delivery has not happened yet. The status
+                # can be skipped if the provider does not have this information.
+                - dropoff_arrived
+                # The package has been delivered to the customer. This is a final status, no further transitions
+                # can be done.
                 - delivered
+                # The package cannot be delivered to the customer. A return is possibly going to be arranged.
+                - delivery_failed
+                # The order has been cancelled. This is a final status, no further transitions
+                # can be done.
                 - canceled
+                # The courier is on the way to return the package back to the pickup location.
+                - return_enroute
+                # The package has been returned to the pickup location. This is a final status, no further transitions
+                # can be done.
+                - returned
+
+        OrderStatusReason:
+            type: object
+            properties:
+                code:
+                    $ref: '#/components/schemas/OrderStatusReasonCode'
+                comment:
+                    type: string
+                    nullable: true
+                    description: >
+                        An optional arbitrary comment explaining why this status transition was done. It is required
+                        only when the "other" code is specified. It is optional for the rest of the codes.
+            required:
+                - code
+
+        OrderStatusReasonCode:
+            type: string
+            enum:
+                # The following reasons can be used only with the "canceled" status.
+
+                # Something went wrong, and the vendor (restaurant, store etc.) cannot find the order in their system.
+                - no_order
+                # The order had been already picked up by another courier or by the customer theirself.
+                - order_already_taken
+                # The pickup place is closed.
+                - pickup_closed
+                # Something happened with the courier, for example, the vehicle broke, an accident or the courier is
+                # having issues with the app.
+                - courier_issues
+                # Something went wrong, the vendor already canceled the order but for some reason the courier was not
+                # notified.
+                - vendor_canceled_order
+                # The courier did not find where their can pick up the order.
+                - pickup_not_found
+                # The courier arrived but the food is not ready yet, and the courier cannot wait any longer.
+                - food_not_ready
+
+
+                # The following reasons can be used only with the "delivery_failed" status.
+
+                # The customer is not responding, that is why the order cannot be delivered.
+                - customer_unavailable
+                # The customer ordered contactless delivery, but the courier cannot find where their can drop off
+                # the order. And the customer is not picking up the phone.
+                - dropoff_not_found
+
+
+                # When the situation is none from the already defined.
+                # Can be used with any status.
+                - other
 
         Courier:
             type: object
             properties:
                 name:
                     type: string
+                    description: The name of the courier for higher customer trust. Cannot be empty.
+                photo_url:
+                    type: string
+                    nullable: true
+                    description: >
+                        An absolute HTTPs URL to a courier image file. The URL must be publicly available without any
+                        additional authentication. Also used for gaining customer trust and security verification.
                 phone:
                     type: string
+                    nullable: true
+                    description: >
+                        The courier phone number if the provider is willing to expose the direct number. Can be used
+                        to contact the courier in case of issues.
+                vehicle:
+                    $ref: '#/components/schemas/Vehicle'
+                    nullable: true
             required:
                 - name
-                - phone
+
+        Vehicle:
+            type: object
+            properties:
+                type:
+                    $ref: '#/components/schemas/VehicleType'
+                    nullable: true
+                description:
+                    type: string
+                    nullable: true
+                    description: >
+                        An optional vehicle description, for example, "White Toyota RAV4".
+
+        VehicleType:
+            type: string
+            enum:
+                - car
+                - bicycle
+                - scooter
+                - motorcycle
+                - walking
+
+        CourierLocation:
+            type: object
+            properties:
+                coordinate:
+                    $ref: '#/components/schemas/Coordinate'
+                heading:
+                    type: integer
+                    format: int32
+                    minimum: 0
+                    maximum: 360
+                    nullable: true
+                    description: The courier movement direction. It is an angle starting from North in degrees.
+                accuracy:
+                    type: integer
+                    format: int32
+                    minimum: 0
+                    nullable: true
+                    description: The coordinates accuracy is represented as the circle radius in meters.
+            required:
+                - coordinate
 
         QuoteCreation422Errors:
             type: string
@@ -515,8 +747,8 @@ components:
                     minimum: 1
                     description: The overall number of items to deliver, counting all copies.
                 items:
-                    $ref: '#/components/schemas/Item'
-                    description: The detailed list of items in the order.
+                        $ref: '#/components/schemas/Item'
+                        description: The detailed list of items in the order.
 
             required:
                 - items_number
