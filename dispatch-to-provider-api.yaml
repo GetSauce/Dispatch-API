@@ -747,6 +747,8 @@ components:
                     minimum: 1
                     description: The overall number of items to deliver, counting all copies.
                 items:
+                    type: array
+                    items:
                         $ref: '#/components/schemas/Item'
                         description: The detailed list of items in the order.
 
