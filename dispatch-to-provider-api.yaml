@@ -457,7 +457,9 @@ components:
                 #   - picked_up
                 #   - dropoff_enroute
                 #   - dropoff_arrived
+                #   - delivered
                 #   - return_enroute
+                #   - returned
                 # It must not be returned in other statuses.
                 location:
                     $ref: '#/components/schemas/CourierLocation'
@@ -605,9 +607,6 @@ components:
                 - order_already_taken
                 # The pickup place is closed.
                 - pickup_closed
-                # Something happened with the courier, for example, the vehicle broke, an accident or the courier is
-                # having issues with the app.
-                - courier_issues
                 # Something went wrong, the vendor already canceled the order but for some reason the courier was not
                 # notified.
                 - vendor_canceled_order
@@ -617,8 +616,11 @@ components:
                 - food_not_ready
 
 
-                # The following reasons can be used only with the "delivery_failed" status.
+                # The following reasons can be used only with the "canceled" or "delivery_failed" statuses.
 
+                # Something happened with the courier, for example, the vehicle broke, an accident or the courier is
+                # having issues with the app.
+                - courier_issues
                 # The customer is not responding, that is why the order cannot be delivered.
                 - customer_unavailable
                 # The customer ordered contactless delivery, but the courier cannot find where their can drop off

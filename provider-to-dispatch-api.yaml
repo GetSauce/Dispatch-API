@@ -1,6 +1,4 @@
-# yaml-language-server: $schema=https://raw.githubusercontent.com/OAI/OpenAPI-Specification/main/schemas/v3.1/schema.json
-
-openapi: '3.1.0'
+openapi: '3.0.0'
 info:
     title: Delivery provider API (a provider calls Sauce)
     version: '1.0'
@@ -55,7 +53,9 @@ paths:
                                 #   - picked_up
                                 #   - dropoff_enroute
                                 #   - dropoff_arrived
+                                #   - delivered
                                 #   - return_enroute
+                                #   - returned
                                 # It cannot be specified in other statuses.
                                 location:
                                     $ref: '#/components/schemas/CourierLocation'
@@ -190,6 +190,8 @@ paths:
                                 $ref: '#/components/schemas/Simulation'
                 401:
                     description: Unauthorized
+                403:
+                    description: Forbidden
                 422:
                     description: "Unprocessable entity"
 
@@ -214,6 +216,8 @@ paths:
                                 $ref: '#/components/schemas/Simulation'
                 401:
                     description: Unauthorized
+                403:
+                    description: Forbidden
                 404:
                     description: The session was not found.
 
@@ -289,9 +293,6 @@ components:
                 - order_already_taken
                 # The pickup place is closed.
                 - pickup_closed
-                # Something happened with the courier, for example, the vehicle broke, an accident or the courier is
-                # having issues with the app.
-                - courier_issues
                 # Something went wrong, the vendor already canceled the order but for some reason the courier was not
                 # notified.
                 - vendor_canceled_order
@@ -301,8 +302,11 @@ components:
                 - food_not_ready
 
 
-                # The following reasons can be used only with the "delivery_failed" status.
+                # The following reasons can be used only with the "canceled" or "delivery_failed" statuses.
 
+                # Something happened with the courier, for example, the vehicle broke, an accident or the courier is
+                # having issues with the app.
+                - courier_issues
                 # The customer is not responding, that is why the order cannot be delivered.
                 - customer_unavailable
                 # The customer ordered contactless delivery, but the courier cannot find where their can drop off
